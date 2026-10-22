@@ -7,6 +7,13 @@ from pydantic import BaseModel
 app = FastAPI(title="PySwarm API")
 
 
+# --- МОДЕЛЬ ДЛЯ КОНФИГУРАЦИИ ТЕСТА ---
+class TestConfig(BaseModel):
+    users: int = 10
+    spawn_rate: int = 1
+    host: str = "http://127.0.0.1:8000"
+
+
 # --- МОДЕЛИ ДАННЫХ (Pydantic) ---
 # Здесь описание модели, как выглядит ОДИН запрос внутри JSON-файла.
 class ApiRequest(BaseModel):
@@ -49,3 +56,14 @@ async def upload_json(file: UploadFile = File(...)):
     except Exception as e:
         # Ловим ошибки валидации Pydantic
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# --- ЗАГЛУШКА ДЛЯ ЗАПУСКА ТЕСТА ---
+@app.post("/api/start")
+async def start_load_test(config: TestConfig):
+    # Пока мы просто возвращаем конфиг.
+    return {
+        "status": "success",
+        "message": "Конфигурация принята",
+        "config": config,
+    }
