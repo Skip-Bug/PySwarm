@@ -1,4 +1,6 @@
+import asyncio
 import json
+import sys
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -58,12 +60,45 @@ async def upload_json(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# --- ЗАГЛУШКА ДЛЯ ЗАПУСКА ТЕСТА ---
+# --- РЕАЛЬНЫЙ ЗАПУСК ТЕСТА ---
 @app.post("/api/start")
 async def start_load_test(config: TestConfig):
-    # Пока мы просто возвращаем конфиг.
-    return {
-        "status": "success",
-        "message": "Конфигурация принята",
-        "config": config,
-    }
+    # 1. Формируем команду для терминала
+    # sys.executable — это путь к твоему Python внутри .venv
+    command = [
+        sys.executable,
+        "-m",
+        "locust",
+        "-f",
+        "locust_file.py",
+        "--headless",  # Без веб-интерфейса (работает в фоне)
+        "-u",
+        str(config.users),  # Количество пользователей
+        "-r",
+        str(config.spawn_rate),  # Скорость появления
+        "--host",
+        config.host,  # Куда стучимся
+        "--run-time",
+        "10s",  # Тест длится ровно 10 секунд
+    ]
+
+    try:
+        # 2. Запускаем процесс в фоне
+        process = await asyncio.create_subprocess_exec(
+            *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+
+        # 3. Ждем, пока Locust закончит работу (эти самые 10 секунд)
+        stdout, stderr = await process.communicate()
+
+        # 4. Возвращаем результат
+        return {
+            "status": "finished",
+            "exit_code": process.returncode,
+            "output": stdout.decode()[
+                -500:
+            ],  # Последние 500 символов лога (чтобы не перегружать ответ)
+            "errors": stderr.decode()[-500:],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка запуска: {str(e)}")
