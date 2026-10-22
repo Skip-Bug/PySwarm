@@ -1,4 +1,5 @@
 import json
+import os
 import random
 
 from locust import FastHttpUser, between, events, task
@@ -17,6 +18,16 @@ def on_test_start(environment, **kwargs):
         with open("tmp/test_data.json", "r", encoding="utf-8") as f:
             REQUESTS = json.load(f)
         print(f"✅ Успешно загружено {len(REQUESTS)} запросов из test_data.json")
+
+        # Проверяем наличие токена в переменных окружения
+        token = os.environ.get("PYSWARM_TOKEN")
+        if token:
+            print("🔑 Токен найден! Внедряем его в заголовки всех запросов.")
+            for req in REQUESTS:
+                if "headers" not in req or req["headers"] is None:
+                    req["headers"] = {}
+                req["headers"]["Authorization"] = f"Bearer {token}"
+
     except FileNotFoundError:
         print(
             "❌ Файл test_data.json не найден! Сначала загрузите его через /api/upload"
@@ -48,5 +59,5 @@ class PySwarmUser(FastHttpUser):
             method=method,
             url=url,
             headers=headers,
-            json=body,  # Locust сам преобразует dict в JSON-строку и поставит правильный Content-Type
+            json=body,
         )
