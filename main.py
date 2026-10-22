@@ -32,7 +32,7 @@ class TestConfig(BaseModel):
     users: int = Field(default=10, ge=1, le=10000)
     spawn_rate: int = Field(default=1, ge=1, le=1000)
     host: str = "http://127.0.0.1:8000"
-    duration: int = Field(default=30, ge=5, le=3600)
+    duration: int = Field(default=30, ge=5, le=7200)
     token: Optional[str] = None
 
 
