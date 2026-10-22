@@ -14,7 +14,8 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 app = FastAPI(title="PySwarm API")
 app.add_middleware(
@@ -28,10 +29,11 @@ app.add_middleware(
 
 # --- МОДЕЛЬ ДЛЯ КОНФИГУРАЦИИ ТЕСТА ---
 class TestConfig(BaseModel):
-    users: int = 10
-    spawn_rate: int = 1
+    users: int = Field(default=10, ge=1, le=10000)
+    spawn_rate: int = Field(default=1, ge=1, le=1000)
     host: str = "http://127.0.0.1:8000"
-    duration: int = 30
+    duration: int = Field(default=30, ge=5, le=3600)
+    token: Optional[str] = None
 
 
 # --- МОДЕЛИ ДАННЫХ (Pydantic) ---
@@ -44,9 +46,6 @@ class ApiRequest(BaseModel):
 
 
 # --- ЭНДПОИНТЫ ---
-@app.get("/")
-async def root():
-    return {"message": "PySwarm Backend is running!"}
 
 
 def ensure_tmp_dir():
@@ -127,10 +126,15 @@ async def start_load_test(config: TestConfig):
         "--csv-full-history",
     ]
 
+    env = os.environ.copy()
+    if config.token:
+        env["PYSWARM_TOKEN"] = config.token
+
     try:
         # Запускаем в фоне. stdout/stderr уводим в DEVNULL, чтобы не забивать память
         await asyncio.create_subprocess_exec(
             *command,
+            env=env,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -202,3 +206,31 @@ async def websocket_endpoint(websocket: WebSocket):
 
     except WebSocketDisconnect:
         print("Клиент отключился от WebSocket")
+
+
+# --- ЭНДПОИНТ ДЛЯ КОНФИГУРАЦИИ ФРОНТЕНДА ---
+@app.get("/api/config")
+async def get_ui_config():
+    return {
+        "users": {
+            "min": int(os.getenv("MAX_USERS_MIN", 1)),
+            "max": int(os.getenv("MAX_USERS_MAX", 1000)),
+            "step": 1,
+            "default": int(os.getenv("MAX_USERS_DEFAULT", 20)),
+        },
+        "spawn": {
+            "min": 1,
+            "max": 100,
+            "step": 1,
+            "default": 2,
+        },
+        "duration": {
+            "min": int(os.getenv("TEST_DURATION_MIN", 5)),
+            "max": int(os.getenv("TEST_DURATION_MAX", 7200)),
+            "step": 5,
+            "default": int(os.getenv("TEST_DURATION_DEFAULT", 30)),
+        },
+    }
+
+
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
