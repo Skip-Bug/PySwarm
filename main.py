@@ -1,4 +1,5 @@
 import asyncio
+import csv
 import json
 import sys
 from typing import Any, Dict, Optional
@@ -33,21 +34,21 @@ async def root():
 
 @app.post("/api/upload")
 async def upload_json(file: UploadFile = File(...)):
-    # 1. Проверяем расширение файла
+    # Проверяем расширение файла
     if not file.filename.endswith(".json"):
         raise HTTPException(status_code=400, detail="Только JSON файлы разрешены")
 
     try:
-        # 2. Читаем файл
+        # Читаем файл
         contents = await file.read()
 
-        # 3. Парсим JSON
+        # Парсим JSON
         parsing_content = json.loads(contents)
 
-        # 4. Валидируем данные через Pydantic.
+        # Валидируем данные через Pydantic.
         requests_list = [ApiRequest(**item) for item in parsing_content]
 
-        # 5. Возвращаем успешный ответ (пока просто количество запросов и первый из них для проверки)
+        # Возвращаем успешный ответ (пока просто количество запросов и первый из них для проверки)
         return {
             "message": f"Успешно распарсено {len(requests_list)} запросов",
             "first_request": requests_list[0],
@@ -63,42 +64,60 @@ async def upload_json(file: UploadFile = File(...)):
 # --- РЕАЛЬНЫЙ ЗАПУСК ТЕСТА ---
 @app.post("/api/start")
 async def start_load_test(config: TestConfig):
-    # 1. Формируем команду для терминала
-    # sys.executable — это путь к твоему Python внутри .venv
+    # Формируем команду
     command = [
         sys.executable,
         "-m",
         "locust",
         "-f",
         "locust_file.py",
-        "--headless",  # Без веб-интерфейса (работает в фоне)
+        "--headless",
         "-u",
-        str(config.users),  # Количество пользователей
+        str(config.users),
         "-r",
-        str(config.spawn_rate),  # Скорость появления
+        str(config.spawn_rate),
         "--host",
-        config.host,  # Куда стучимся
+        config.host,
         "--run-time",
-        "10s",  # Тест длится ровно 10 секунд
+        "10s",
+        "--csv=test_results",
     ]
 
     try:
-        # 2. Запускаем процесс в фоне
+        # Запускаем процесс и ждем
         process = await asyncio.create_subprocess_exec(
             *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
-
-        # 3. Ждем, пока Locust закончит работу (эти самые 10 секунд)
         stdout, stderr = await process.communicate()
 
-        # 4. Возвращаем результат
+        # Читаем CSV файл
+        metrics = {}
+        try:
+            with open("test_results_stats.csv", mode="r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row["Name"] == "Aggregated":
+                        metrics = {
+                            "requests": int(row["Request Count"]),
+                            "fails": int(row["Failure Count"]),
+                            "median_ms": float(row["Median Response Time"]),
+                            "rps": float(row["Requests/s"]),
+                        }
+                        break
+        except FileNotFoundError:
+            metrics = {"error": "Файл статистики не найден"}
+
+        # Возвращаем ЕДИНСТВЕННЫЙ финальный результат
         return {
             "status": "finished",
             "exit_code": process.returncode,
-            "output": stdout.decode()[
-                -500:
-            ],  # Последние 500 символов лога (чтобы не перегружать ответ)
-            "errors": stderr.decode()[-500:],
+            "metrics": metrics,
+            "output": stdout.decode()[-500:],  # Вернули лог
+            "errors": stderr.decode()[-500:],  # Вернули ошибки
         }
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка запуска: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка запуска: {str(e)}",
+        )
