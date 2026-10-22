@@ -14,7 +14,7 @@ def on_test_start(environment, **kwargs):
     """Этот код выполняется один раз при старте Locust, до того как пользователи начали работу."""
     global REQUESTS
     try:
-        with open("test_data.json", "r", encoding="utf-8") as f:
+        with open("tmp/test_data.json", "r", encoding="utf-8") as f:
             REQUESTS = json.load(f)
         print(f"✅ Успешно загружено {len(REQUESTS)} запросов из test_data.json")
     except FileNotFoundError:

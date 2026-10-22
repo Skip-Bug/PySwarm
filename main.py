@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import json
+import os
 import sys
 from typing import Any, Dict, Optional
 
@@ -30,6 +31,7 @@ class TestConfig(BaseModel):
     users: int = 10
     spawn_rate: int = 1
     host: str = "http://127.0.0.1:8000"
+    duration: int = 30
 
 
 # --- МОДЕЛИ ДАННЫХ (Pydantic) ---
@@ -45,6 +47,11 @@ class ApiRequest(BaseModel):
 @app.get("/")
 async def root():
     return {"message": "PySwarm Backend is running!"}
+
+
+def ensure_tmp_dir():
+    """Создает папку tmp, если её еще нет."""
+    os.makedirs("tmp", exist_ok=True)
 
 
 @app.post("/api/upload")
@@ -63,7 +70,9 @@ async def upload_json(file: UploadFile = File(...)):
         requests_list = [ApiRequest(**item) for item in parsing_content]
 
         # СОХРАНЯЕМ файл на диск для Locust
-        with open("test_data.json", "w", encoding="utf-8") as f:
+        ensure_tmp_dir()
+
+        with open("tmp/test_data.json", "w", encoding="utf-8") as f:
             json.dump(parsing_content, f, ensure_ascii=False, indent=2)
 
         return {
@@ -77,9 +86,28 @@ async def upload_json(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+def cleanup_old_files(folder: str):
+    """Удаляет старые файлы результатов перед новым запуском."""
+    files_to_delete = [
+        "test_results_stats_history.csv",
+        "test_results_stats.csv",
+        "test_results_failures.csv",
+    ]
+    for filename in files_to_delete:
+        filepath = os.path.join(folder, filename)
+        if not os.path.exists(filepath):
+            continue
+        try:
+            os.remove(filepath)
+        except PermissionError:
+            pass
+
+
 # --- РЕАЛЬНЫЙ ЗАПУСК ТЕСТА ---
 @app.post("/api/start")
 async def start_load_test(config: TestConfig):
+    ensure_tmp_dir()
+    cleanup_old_files("tmp")
     command = [
         sys.executable,
         "-m",
@@ -94,8 +122,8 @@ async def start_load_test(config: TestConfig):
         "--host",
         config.host,
         "--run-time",
-        "30s",  # Увеличим до 30 секунд, чтобы было время посмотреть график
-        "--csv=test_results",
+        f"{config.duration}s",
+        "--csv=tmp/test_results",
         "--csv-full-history",
     ]
 
@@ -161,7 +189,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             # Вызываем функцию, она делает всю грязную работу
-            metrics = get_latest_metrics("test_results_stats_history.csv")
+            metrics = get_latest_metrics("tmp/test_results_stats_history.csv")
 
             # Если данные есть — отправляем
             if metrics:
