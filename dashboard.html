@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>PySwarm Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #1e1e1e; color: #fff; margin: 20px; }
+        .container { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
+        .card { background: #2d2d2d; padding: 20px; border-radius: 8px; width: 45%; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        h2 { text-align: center; font-size: 18px; margin-bottom: 15px; color: #4CAF50; }
+        .controls { text-align: center; margin-bottom: 20px; }
+        button { padding: 10px 20px; font-size: 16px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #45a049; }
+        #status { text-align: center; margin-top: 10px; font-weight: bold; color: #ff9800; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <button onclick="startTest()">Запустить тест</button>
+        <div id="status">Статус: Ожидание</div>
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <h2>RPS (Запросы в секунду)</h2>
+            <canvas id="rpsChart"></canvas>
+        </div>
+        <div class="card">
+            <h2>Пользователи / Ошибки</h2>
+            <canvas id="usersChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // Настройка графиков
+        const commonOptions = {
+            responsive: true,
+            animation: false,
+            scales: {
+                x: { display: false }, // Скрываем ось X для чистоты
+                y: { beginAtZero: true, grid: { color: '#444' }, ticks: { color: '#ccc' } }
+            },
+            plugins: { legend: { labels: { color: '#ccc' } } }
+        };
+
+        const rpsChart = new Chart(document.getElementById('rpsChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{ label: 'RPS', data: [], borderColor: '#4CAF50', backgroundColor: 'rgba(76, 175, 80, 0.2)', fill: true, tension: 0.3, pointRadius: 0 }]
+            },
+            options: commonOptions
+        });
+
+        const usersChart = new Chart(document.getElementById('usersChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Пользователи', data: [], borderColor: '#2196F3', tension: 0.3, pointRadius: 0 },
+                    { label: 'Ошибки', data: [], borderColor: '#F44336', tension: 0.3, pointRadius: 0 }
+                ]
+            },
+            options: commonOptions
+        });
+
+        let ws;
+
+        function startTest() {
+            document.getElementById('status').innerText = "Статус: Запуск Locust...";
+            
+            // 1. Стучимся в наш API, чтобы запустить Locust
+            fetch('http://127.0.0.1:8000/api/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ users: 20, spawn_rate: 2, host: 'http://127.0.0.1:8000' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('status').innerText = "Статус: Тест идет (30 сек)...";
+                
+                // 2. Очищаем старые данные на графиках
+                rpsChart.data.labels = [];
+                rpsChart.data.datasets[0].data = [];
+                usersChart.data.labels = [];
+                usersChart.data.datasets[0].data = [];
+                usersChart.data.datasets[1].data = [];
+                rpsChart.update();
+                usersChart.update();
+
+                connectWebSocket();
+            })
+            .catch(error => {
+                document.getElementById('status').innerText = "Ошибка: " + error;
+            });
+        }
+
+        function connectWebSocket() {
+            if (ws) ws.close();
+            
+            ws = new WebSocket("ws://127.0.0.1:8000/ws/metrics");
+            
+            ws.onmessage = (event) => {
+                
+                const data = JSON.parse(event.data);
+                
+                // Добавляем новые данные на график
+                rpsChart.data.labels.push(data.timestamp);
+                rpsChart.data.datasets[0].data.push(parseFloat(data.total_rps) || 0);
+                
+                usersChart.data.labels.push(data.timestamp);
+                usersChart.data.datasets[0].data.push(parseInt(data.user_count) || 0);
+                usersChart.data.datasets[1].data.push(parseInt(data.fails) || 0);
+
+                // Ограничиваем графики 30 точками (чтобы не уезжали за экран)
+                if (rpsChart.data.labels.length > 30) {
+                    rpsChart.data.labels.shift();
+                    rpsChart.data.datasets[0].data.shift();
+                    usersChart.data.labels.shift();
+                    usersChart.data.datasets[0].data.shift();
+                    usersChart.data.datasets[1].data.shift();
+                }
+
+                rpsChart.update();
+                usersChart.update();
+            };
+
+            ws.onclose = () => {
+                console.log("WebSocket закрыт. Код:", event.code, "Причина:", event.reason);
+                document.getElementById('status').innerText = "Статус: Тест завершен";
+            };
+            ws.onerror = (error) => {
+                console.log("Ошибка WebSocket:", error);
+            }
+        }
+    </script>
+</body>
+</html>
