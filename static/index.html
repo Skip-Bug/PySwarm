@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>PySwarm Dashboard</title>
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style.css?v=2">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -47,6 +47,12 @@
             <div class="control-block">
                 <label>Bearer Токен (опционально)</label>
                 <input type="text" id="tokenInput" placeholder="Вставьте токен..." class="styled-input" style="width: 350px;">
+            </div>
+            <div class="control-block">
+                <label>Режим контура</label>
+                <div style="display: flex; align-items: center; height: 38px;">
+                    <button type="button" id="loopModeBtn" class="btn-closed" onclick="toggleLoopMode()">Закрытый контур</button>
+                </div>
             </div>
         </div>
 

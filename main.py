@@ -41,6 +41,7 @@ class TestConfig(BaseModel):
     duration: int = Field(default=30, ge=5, le=7200)
     wait_time: float = Field(default=1.0, ge=0.0, le=10.0)
     token: Optional[str] = None
+    is_open_loop: bool = Field(default=False)
 
 
 class ApiRequest(BaseModel):
@@ -148,7 +149,11 @@ async def start_load_test(config: TestConfig):
     ensure_tmp_dir()
     cleanup_old_files("tmp")
 
-    worker_config = {"token": config.token, "wait_time": config.wait_time}
+    worker_config = {
+        "token": config.token,
+        "wait_time": config.wait_time,
+        "is_open_loop": config.is_open_loop,
+    }
     with open("tmp/config.json", "w", encoding="utf-8") as f:
         json.dump(worker_config, f)
 

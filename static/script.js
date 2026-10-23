@@ -1,5 +1,6 @@
 const API_BASE = window.location.origin;
 const WS_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/metrics';
+let isOpenLoop = false;
 // Синхронизация бегунков и полей ввода
 const usersRange = document.getElementById('usersRange');
 const usersInput = document.getElementById('usersInput');
@@ -9,6 +10,7 @@ const durationRange = document.getElementById('durationRange');
 const durationInput = document.getElementById('durationInput');
 const waitRange = document.getElementById('waitRange');
 const waitInput = document.getElementById('waitInput');
+
 
 // Когда двигаем бегунок пользователей
 usersRange.addEventListener('input', () => { usersInput.value = usersRange.value; });
@@ -96,6 +98,19 @@ const usersChart = new Chart(document.getElementById('usersChart'), {
 
 let ws;
 
+function toggleLoopMode() {
+    isOpenLoop = !isOpenLoop; // Меняем состояние на противоположное
+    const btn = document.getElementById('loopModeBtn');
+    
+    if (isOpenLoop) {
+        btn.innerText = "Открытый контур";
+        btn.className = "btn-open"; 
+    } else {
+        btn.innerText = "Закрытый контур";
+        btn.className = "btn-closed"; 
+    }
+}
+
 function startTest() {
     document.getElementById('status').innerText = "Статус: Запуск Locust...";
     
@@ -106,6 +121,7 @@ function startTest() {
     const wait_time = parseFloat(waitInput.value);
     const token = document.getElementById('tokenInput').value.trim();
     const host = document.getElementById('hostInput').value.trim();
+    const is_open_loop = isOpenLoop;
     //  Стучимся в наш API, чтобы запустить Locust
     fetch(API_BASE + '/api/start', {
         method: 'POST',
@@ -116,7 +132,8 @@ function startTest() {
             host: host, 
             duration: duration,
             wait_time: wait_time,
-            token: token 
+            token: token, 
+            is_open_loop: is_open_loop
         })
     })
     .then(response => response.json())
