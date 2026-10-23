@@ -1,10 +1,13 @@
 import asyncio
+import contextlib
 import csv
 import json
 import os
+import signal
 import sys
 from typing import Any, Dict, Optional
 
+import httpx
 from fastapi import (
     FastAPI,
     File,
@@ -16,6 +19,8 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+locust_process = None
 
 app = FastAPI(title="PySwarm API")
 app.add_middleware(
@@ -107,13 +112,18 @@ def cleanup_old_files(folder: str):
 async def start_load_test(config: TestConfig):
     ensure_tmp_dir()
     cleanup_old_files("tmp")
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.get("http://127.0.0.1:8089/quit", timeout=1.0)
+    except httpx.RequestError:
+        # Если Locust не запущен (ошибка соединения) — это нормально, идем дальше
+        pass
     command = [
         sys.executable,
         "-m",
         "locust",
         "-f",
         "locust_file.py",
-        "--headless",
         "-u",
         str(config.users),
         "-r",
@@ -124,19 +134,23 @@ async def start_load_test(config: TestConfig):
         f"{config.duration}s",
         "--csv=tmp/test_results",
         "--csv-full-history",
+        "--autostart",
+        "--stop-timeout",
+        "1",
     ]
 
     env = os.environ.copy()
     if config.token:
         env["PYSWARM_TOKEN"] = config.token
 
+    global locust_process
     try:
-        # Запускаем в фоне. stdout/stderr уводим в DEVNULL, чтобы не забивать память
-        await asyncio.create_subprocess_exec(
+        locust_process = await asyncio.create_subprocess_exec(
             *command,
             env=env,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
         )
 
         return {
@@ -149,6 +163,33 @@ async def start_load_test(config: TestConfig):
             status_code=500,
             detail=f"Ошибка запуска: {str(e)}",
         )
+
+
+@app.post("/api/stop")
+async def stop_load_test():
+    global locust_process
+
+    # 1. Просим по-хорошему (подавляем ошибку, если Locust уже мертв)
+    with contextlib.suppress(httpx.RequestError):
+        async with httpx.AsyncClient() as client:
+            await client.get("http://127.0.0.1:8089/quit", timeout=1.0)
+
+    # 2. Если процесса нет или он уже завершился — выходим
+    if not locust_process or locust_process.returncode is not None:
+        return {"status": "not_running", "message": "Тест уже не запущен"}
+
+    # 3. Добиваем процесс
+    if os.name == "nt":
+        locust_process.terminate()
+    else:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(os.getpgid(locust_process.pid), signal.SIGTERM)  # type: ignore
+
+    # 4. Ждем завершения и очищаем
+    await locust_process.wait()
+    locust_process = None
+
+    return {"status": "killed", "message": "Процесс Locust жестко завершен"}
 
 
 def get_latest_metrics(file_path: str) -> Optional[Dict[str, Any]]:

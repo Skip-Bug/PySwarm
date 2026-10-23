@@ -78,7 +78,8 @@
             </div>
         </div>
         <br><br>
-        <button onclick="startTest()">Запустить тест</button>
+        <button onclick="startTest()" id="startBtn">Запустить тест</button>
+        <button onclick="stopTest()" id="stopBtn" style="background: #F44336; display: none;">Остановить</button>
         <div id="status">Статус: Ожидание</div>
     </div>
 
@@ -202,6 +203,11 @@
             .then(response => response.json())
             .then(data => {
                 document.getElementById('status').innerText = `Статус: Тест идет (${duration} сек)...`;               
+               
+                // Переключаем кнопки
+                document.getElementById('startBtn').style.display = 'none';
+                document.getElementById('stopBtn').style.display = 'inline-block';                
+                
                 // Очищаем старые данные на графиках
                 rpsChart.data.labels = [];
                 rpsChart.data.datasets[0].data = [];
@@ -215,6 +221,9 @@
                 // Таймер завершения (duration секунд + 2 секунды запаса на запись последних логов)
                 setTimeout(() => {
                     document.getElementById('status').innerText = "Статус: Тест завершен";
+                    // Возвращаем кнопки
+                    document.getElementById('startBtn').style.display = 'inline-block';
+                    document.getElementById('stopBtn').style.display = 'none';
                     if (ws) ws.close();
                 }, (duration + 2) * 1000);
             })
@@ -222,7 +231,22 @@
                 document.getElementById('status').innerText = "Ошибка: " + error;
             });
         }
-
+        async function stopTest() {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/api/stop', { method: 'POST' });
+                
+                document.getElementById('status').innerText = "Статус: Тест остановлен";
+                
+                // Возвращаем кнопки в исходное состояние
+                document.getElementById('startBtn').style.display = 'inline-block';
+                document.getElementById('stopBtn').style.display = 'none';
+                
+                // Закрываем веб-сокет
+                if (ws) ws.close();
+            } catch (error) {
+                console.error("Ошибка при остановке:", error);
+            }
+        }
         function connectWebSocket() {
             if (ws) ws.close();
             
@@ -256,6 +280,9 @@
             ws.onclose = () => {
                 console.log("WebSocket закрыт. Код:", event.code, "Причина:", event.reason);
                 document.getElementById('status').innerText = "Статус: Тест завершен";
+                
+                document.getElementById('startBtn').style.display = 'inline-block';
+                document.getElementById('stopBtn').style.display = 'none';
             };
             ws.onerror = (error) => {
                 console.log("Ошибка WebSocket:", error);
