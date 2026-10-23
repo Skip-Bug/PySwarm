@@ -102,7 +102,6 @@ async def upload_folder(files: List[UploadFile] = File(...)):
             "files": results,
         }
 
-    # Сохраняем ОДИН объединенный файл
     with open("tmp/test_data.json", "w", encoding="utf-8") as f:
         json.dump(all_requests, f, ensure_ascii=False, indent=2)
 
@@ -199,7 +198,6 @@ async def stop_load_test():
 
 async def get_latest_metrics() -> Optional[Dict[str, Any]]:
     try:
-        # Получаем загрузку CPU текущего контейнера/системы
         cpu_load = psutil.cpu_percent()
 
         async with httpx.AsyncClient(trust_env=False) as client:

@@ -25,7 +25,7 @@ button:hover { background: #45a049; }
 }
 input[type="range"] {
     cursor: pointer;
-    accent-color: #4CAF50; /* Зеленый цвет для ползунка */
+    accent-color: #4CAF50;
 }
 input[type="number"] {
     width: 60px;
@@ -39,7 +39,7 @@ input[type="number"] {
 .controls-row {
     display: flex;
     justify-content: center;
-    align-items: flex-end; /* Выравниваем по нижнему краю */
+    align-items: flex-end;
     gap: 30px;
     margin-bottom: 20px;
     flex-wrap: wrap;
