@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-import csv
 import json
 import os
 import signal
@@ -175,34 +174,43 @@ async def stop_load_test():
     return {"status": "killed", "message": "Процесс Locust жестко завершен"}
 
 
-def get_latest_metrics(file_path: str) -> Optional[Dict[str, Any]]:
-    """Читает последнюю непустую строку из CSV и возвращает словарь с метриками."""
+async def get_latest_metrics() -> Optional[Dict[str, Any]]:
+    """Запрашивает статистику напрямую из API Locust."""
     try:
-        with open(file_path, mode="r", encoding="utf-8") as f:
-            lines = f.readlines()
-    except (FileNotFoundError, PermissionError):
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "http://127.0.0.1:8089/stats/requests",
+                timeout=1.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        # Если тест еще не запущен, Locust может вернуть state: "ready"
+        if data.get("state") != "running":
+            return None
+
+        # Считаем общее количество ошибок
+        total_fails = sum(
+            stat.get(
+                "num_failures",
+                0,
+            )
+            for stat in data.get(
+                "stats",
+                [],
+            )
+        )
+
+        return {
+            "timestamp": str(
+                int(asyncio.get_event_loop().time())
+            ),  # Просто текущее время
+            "user_count": str(data.get("user_count", 0)),
+            "total_rps": str(round(data.get("total_rps", 0), 2)),
+            "fails": str(total_fails),
+        }
+    except (httpx.RequestError, httpx.HTTPStatusError):
         return None
-
-    # Находим последнюю непустую строку через генератор (плоско и быстро)
-    last_line = next(
-        (line.strip() for line in reversed(lines) if line.strip()),
-        None,
-    )
-
-    if not last_line:
-        return None
-
-    row = next(csv.reader([last_line]), None)
-
-    if not row or len(row) < 6:
-        return None
-
-    return {
-        "timestamp": row[0],
-        "user_count": row[1],
-        "total_rps": row[4],
-        "fails": row[5],
-    }
 
 
 @app.websocket("/ws/metrics")
@@ -211,16 +219,13 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         while True:
-            # Вызываем функцию, она делает всю грязную работу
-            metrics = get_latest_metrics("tmp/test_results_stats_history.csv")
+            # Ждем метрики из API (асинхронно, без чтения файлов)
+            metrics = await get_latest_metrics()
 
-            # Если данные есть — отправляем
             if metrics:
-                print(f"➡️ ОТПРАВКА: {metrics}")
                 await websocket.send_json(metrics)
-            else:
-                print("⏳ Данных пока нет (файл пуст или заблокирован)")
-            # Ждем секунду и повторяем
+
+            # Ждем секунду перед следующим запросом
             await asyncio.sleep(1)
 
     except WebSocketDisconnect:
