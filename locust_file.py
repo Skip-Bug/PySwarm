@@ -2,10 +2,9 @@ import json
 import os
 import random
 
-from locust import FastHttpUser, between, events, task
+from locust import FastHttpUser, constant, events, task
 
-ALFA = 1
-OMEGA = 2
+WAIT_TIME = float(os.environ.get("PYSWARM_WAIT_TIME", 1.0))
 
 REQUESTS = []  # Глобальная переменная, где мы будем хранить наши запросы
 
@@ -37,7 +36,7 @@ def on_test_start(environment, **kwargs):
 
 class PySwarmUser(FastHttpUser):
     # Пауза между запросами одного пользователя (от ALFA до OMEGA секунд)
-    wait_time = between(ALFA, OMEGA)
+    wait_time = constant(WAIT_TIME)
 
     @task
     def dynamic_request(self):

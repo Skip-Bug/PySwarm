@@ -1,0 +1,14 @@
+
+services:
+  pyswarm:
+    build: .
+    container_name: pyswarm_app
+    ports:
+      - "8000:8000"
+      - "8089:8089" # Пробрасываем порт Locust (пригодится для отладки)
+    volumes:
+      - ./tmp:/app/tmp # Сохраняем файлы тестов и CSV на компьютере
+    environment:
+      - MAX_USERS_DEFAULT=50
+      - TEST_DURATION_DEFAULT=60
+    restart: unless-stopped

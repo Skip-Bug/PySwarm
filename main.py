@@ -37,6 +37,7 @@ class TestConfig(BaseModel):
     spawn_rate: int = Field(default=1, ge=1, le=1000)
     host: str = "http://127.0.0.1:8000"
     duration: int = Field(default=30, ge=5, le=7200)
+    wait_time: float = Field(default=1.0, ge=0.0, le=10.0)
     token: Optional[str] = None
 
 
@@ -50,8 +51,6 @@ class ApiRequest(BaseModel):
 
 
 # --- ЭНДПОИНТЫ ---
-
-
 def ensure_tmp_dir():
     """Создает папку tmp, если её еще нет."""
     os.makedirs("tmp", exist_ok=True)
@@ -127,13 +126,18 @@ async def start_load_test(config: TestConfig):
         "--autostart",
         "--stop-timeout",
         "1",
+        "--web-host",
+        "127.0.0.1",
     ]
 
     env = os.environ.copy()
     if config.token:
         env["PYSWARM_TOKEN"] = config.token
 
+    env["PYSWARM_WAIT_TIME"] = str(config.wait_time)
+
     global locust_process
+
     try:
         locust_process = await asyncio.create_subprocess_exec(
             *command,
@@ -177,39 +181,28 @@ async def stop_load_test():
 async def get_latest_metrics() -> Optional[Dict[str, Any]]:
     """Запрашивает статистику напрямую из API Locust."""
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(trust_env=False) as client:
             response = await client.get(
                 "http://127.0.0.1:8089/stats/requests",
-                timeout=1.0,
+                timeout=3.0,  # <-- Увеличили таймаут, чтобы сервер успевал
             )
             response.raise_for_status()
             data = response.json()
 
-        # Если тест еще не запущен, Locust может вернуть state: "ready"
-        if data.get("state") != "running":
+        if data.get("state") not in ("running", "spawning", "ready"):
             return None
 
-        # Считаем общее количество ошибок
-        total_fails = sum(
-            stat.get(
-                "num_failures",
-                0,
-            )
-            for stat in data.get(
-                "stats",
-                [],
-            )
-        )
+        total_fails = sum(stat.get("num_failures", 0) for stat in data.get("stats", []))
 
         return {
-            "timestamp": str(
-                int(asyncio.get_event_loop().time())
-            ),  # Просто текущее время
+            "timestamp": str(int(asyncio.get_event_loop().time())),
             "user_count": str(data.get("user_count", 0)),
             "total_rps": str(round(data.get("total_rps", 0), 2)),
             "fails": str(total_fails),
         }
-    except (httpx.RequestError, httpx.HTTPStatusError):
+    except Exception as e:
+        # Теперь мы увидим тип ошибки (например, ReadTimeout)
+        print(f"❌ Ошибка получения метрик: {type(e).__name__} - {e}")
         return None
 
 
@@ -253,6 +246,12 @@ async def get_ui_config():
             "max": int(os.getenv("TEST_DURATION_MAX", 7200)),
             "step": 5,
             "default": int(os.getenv("TEST_DURATION_DEFAULT", 30)),
+        },
+        "wait": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.1,
+            "default": 1.0,
         },
     }
 
