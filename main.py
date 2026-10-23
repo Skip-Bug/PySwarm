@@ -229,7 +229,7 @@ async def get_latest_metrics() -> Optional[Dict[str, Any]]:
             )
 
         return {
-            "timestamp": str(int(asyncio.get_event_loop().time())),
+            "timestamp": str(int(asyncio.get_running_loop().time())),
             "user_count": str(data.get("user_count", 0)),
             "total_rps": str(round(data.get("total_rps", 0), 2)),
             "fails": str(total_fails),
