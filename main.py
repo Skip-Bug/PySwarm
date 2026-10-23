@@ -1,9 +1,17 @@
 import asyncio
 import json
+import logging
 import os
 from typing import Any, Dict, Optional
 
 import httpx
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("pyswarm")
 from fastapi import (
     FastAPI,
     File,
@@ -69,6 +77,7 @@ async def upload_json(file: UploadFile = File(...)):
     with open("tmp/test_data.json", "w", encoding="utf-8") as f:
         json.dump(parsing_content, f, ensure_ascii=False, indent=2)
 
+    logger.info("Загружено %d запросов из %s", len(requests_list), file.filename)
     return {
         "message": f"Успешно распарсено и сохранено {len(requests_list)} запросов",
         "first_request": requests_list[0],
@@ -94,6 +103,8 @@ def cleanup_old_files(folder: str):
 
 @app.post("/api/start")
 async def start_load_test(config: TestConfig):
+    logger.info("Запуск теста: users=%d, spawn=%d, host=%s, duration=%ds",
+                 config.users, config.spawn_rate, config.host, config.duration)
     ensure_tmp_dir()
     cleanup_old_files("tmp")
 
@@ -121,9 +132,11 @@ async def start_load_test(config: TestConfig):
             )
             response.raise_for_status()
 
+        logger.info("Тест успешно запущен на воркерах")
         return {"status": "started", "message": "Тест запущен на воркерах"}
 
     except Exception as e:
+        logger.error("Ошибка связи с Locust Master: %s", e)
         raise HTTPException(
             status_code=500, detail=f"Ошибка связи с Locust Master: {str(e)}"
         )
@@ -131,12 +144,15 @@ async def start_load_test(config: TestConfig):
 
 @app.post("/api/stop")
 async def stop_load_test():
+    logger.info("Остановка теста")
     try:
         async with httpx.AsyncClient(trust_env=False) as client:
             # Команда "stop" останавливает текущий тест (пользователи перестают генерироваться)
             await client.get("http://locust_master:8089/stop", timeout=2.0)
+        logger.info("Тест остановлен")
         return {"status": "stopped", "message": "Тест остановлен"}
     except Exception as e:
+        logger.error("Ошибка при остановке теста: %s", e)
         return {"status": "error", "message": f"Ошибка: {str(e)}"}
 
 
@@ -164,7 +180,7 @@ async def get_latest_metrics() -> Optional[Dict[str, Any]]:
         }
     except Exception as e:
         # Теперь мы увидим тип ошибки (например, ReadTimeout)
-        print(f"❌ Ошибка получения метрик: {type(e).__name__} - {e}")
+        logger.error("Ошибка получения метрик: %s - %s", type(e).__name__, e)
         return None
 
 
@@ -184,7 +200,7 @@ async def websocket_endpoint(websocket: WebSocket):
             await asyncio.sleep(1)
 
     except WebSocketDisconnect:
-        print("Клиент отключился от WebSocket")
+        logger.info("Клиент отключился от WebSocket")
 
 
 # --- ЭНДПОИНТ ДЛЯ КОНФИГУРАЦИИ ФРОНТЕНДА ---

@@ -1,7 +1,15 @@
 import json
+import logging
 import random
 
 from locust import FastHttpUser, constant, events, task
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("pyswarm.worker")
 
 REQUESTS = []
 
@@ -15,9 +23,9 @@ def on_test_start(environment, **kwargs):
     try:
         with open("tmp/test_data.json", "r", encoding="utf-8") as f:
             REQUESTS = json.load(f)
-        print(f"✅ Успешно загружено {len(REQUESTS)} запросов")
+        logger.info("✅ Успешно загружено %d запросов", len(REQUESTS))
     except FileNotFoundError:
-        print("❌ Файл test_data.json не найден!")
+        logger.error("❌ Файл test_data.json не найден!")
         return
 
     # Загружаем настройки (токен и задержку), которые сохранил FastAPI
@@ -30,18 +38,18 @@ def on_test_start(environment, **kwargs):
 
         # Динамически меняем задержку для всех пользователей
         PySwarmUser.wait_time = constant(wait_time)
-        print(f"⚙️ Применена задержка: {wait_time} сек.")
+        logger.info("⚙️ Применена задержка: %.1f сек.", wait_time)
 
         # Внедряем токен
         if token:
-            print("🔑 Токен найден! Внедряем в заголовки.")
+            logger.info("🔑 Токен найден! Внедряем в заголовки.")
             for req in REQUESTS:
                 if "headers" not in req or req["headers"] is None:
                     req["headers"] = {}
                 req["headers"]["Authorization"] = f"Bearer {token}"
 
     except FileNotFoundError:
-        print("⚠️ Файл config.json не найден, используем настройки по умолчанию.")
+        logger.warning("⚠️ Файл config.json не найден, используем настройки по умолчанию.")
 
 
 class PySwarmUser(FastHttpUser):
