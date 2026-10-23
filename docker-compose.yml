@@ -1,28 +1,25 @@
 services:
-  # Наш веб-интерфейс и бэкенд
   backend:
     build: .
     container_name: pyswarm_backend
     ports:
       - "8000:8000"
     volumes:
-      - ./tmp:/app/tmp  # Общая папка для JSON-файлов и настроек
+      - ./tmp:/app/tmp
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     environment:
       - MAX_USERS_DEFAULT=50
       - TEST_DURATION_DEFAULT=60
 
-  # Мастер Locust (мозг, который раздает команды)
   locust_master:
     build: .
     container_name: pyswarm_master
     ports:
-      - "8089:8089" # Открываем для отладки (можешь зайти по этому порту в браузере)
+      - "8089:8089"
     volumes:
       - ./tmp:/app/tmp
     command: locust -f locust_file.py --master --web-host 0.0.0.0 --web-port 8089
 
-  # Воркеры Locust (мышцы, которые создают нагрузку)
   locust_worker:
     build: .
     volumes:
@@ -30,4 +27,4 @@ services:
     command: locust -f locust_file.py --worker --master-host locust_master
     depends_on:
       - locust_master
-    restart: on-failure # Если воркер упадет, Docker его перезапустит
+    restart: on-failure

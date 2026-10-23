@@ -5,13 +5,6 @@ import os
 from typing import Any, Dict, Optional
 
 import httpx
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger("pyswarm")
 from fastapi import (
     FastAPI,
     File,
@@ -24,17 +17,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("pyswarm")
+
 app = FastAPI(title="PySwarm API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Разрешаем всем (для локальной разработки сойдет)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# --- МОДЕЛЬ ДЛЯ КОНФИГУРАЦИИ ТЕСТА ---
 class TestConfig(BaseModel):
     users: int = Field(default=10, ge=1, le=10000)
     spawn_rate: int = Field(default=1, ge=1, le=1000)
@@ -44,18 +43,14 @@ class TestConfig(BaseModel):
     token: Optional[str] = None
 
 
-# --- МОДЕЛИ ДАННЫХ (Pydantic) ---
-# Здесь описание модели, как выглядит ОДИН запрос внутри JSON-файла.
 class ApiRequest(BaseModel):
-    method: str  # Например, "GET" или "POST"
-    url: str  # Куда стучимся (например, "/api/users")
-    headers: Optional[Dict[str, str]] = None  # Заголовки (необязательно)
-    body: Optional[Dict[str, Any]] = None  # Тело запроса (необязательно)
+    method: str
+    url: str
+    headers: Optional[Dict[str, str]] = None
+    body: Optional[Dict[str, Any]] = None
 
 
-# --- ЭНДПОИНТЫ ---
 def ensure_tmp_dir():
-    """Создает папку tmp, если её еще нет."""
     os.makedirs("tmp", exist_ok=True)
 
 
@@ -85,7 +80,6 @@ async def upload_json(file: UploadFile = File(...)):
 
 
 def cleanup_old_files(folder: str):
-    """Удаляет старые файлы результатов перед новым запуском."""
     files_to_delete = [
         "test_results_stats_history.csv",
         "test_results_stats.csv",
@@ -108,18 +102,14 @@ async def start_load_test(config: TestConfig):
     ensure_tmp_dir()
     cleanup_old_files("tmp")
 
-    # Сохраняем настройки в файл, чтобы воркеры их прочитали
     worker_config = {"token": config.token, "wait_time": config.wait_time}
     with open("tmp/config.json", "w", encoding="utf-8") as f:
         json.dump(worker_config, f)
 
-    # Отправляем команду Мастеру Locust (который крутится в отдельном контейнере)
     try:
         async with httpx.AsyncClient(trust_env=False) as client:
-            # Сначала сбрасываем статистику и запускаем
             await client.get("http://locust_master:8089/stats/reset", timeout=2.0)
 
-            # Формируем запрос на старт
             payload = {
                 "user_count": config.users,
                 "spawn_rate": config.spawn_rate,
@@ -147,7 +137,6 @@ async def stop_load_test():
     logger.info("Остановка теста")
     try:
         async with httpx.AsyncClient(trust_env=False) as client:
-            # Команда "stop" останавливает текущий тест (пользователи перестают генерироваться)
             await client.get("http://locust_master:8089/stop", timeout=2.0)
         logger.info("Тест остановлен")
         return {"status": "stopped", "message": "Тест остановлен"}
@@ -157,12 +146,11 @@ async def stop_load_test():
 
 
 async def get_latest_metrics() -> Optional[Dict[str, Any]]:
-    """Запрашивает статистику напрямую из API Locust."""
     try:
         async with httpx.AsyncClient(trust_env=False) as client:
             response = await client.get(
                 "http://locust_master:8089/stats/requests",
-                timeout=3.0,  # <-- Увеличили таймаут, чтобы сервер успевал
+                timeout=3.0,
             )
             response.raise_for_status()
             data = response.json()
@@ -179,7 +167,6 @@ async def get_latest_metrics() -> Optional[Dict[str, Any]]:
             "fails": str(total_fails),
         }
     except Exception as e:
-        # Теперь мы увидим тип ошибки (например, ReadTimeout)
         logger.error("Ошибка получения метрик: %s - %s", type(e).__name__, e)
         return None
 
@@ -190,20 +177,17 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         while True:
-            # Ждем метрики из API (асинхронно, без чтения файлов)
             metrics = await get_latest_metrics()
 
             if metrics:
                 await websocket.send_json(metrics)
 
-            # Ждем секунду перед следующим запросом
             await asyncio.sleep(1)
 
     except WebSocketDisconnect:
         logger.info("Клиент отключился от WebSocket")
 
 
-# --- ЭНДПОИНТ ДЛЯ КОНФИГУРАЦИИ ФРОНТЕНДА ---
 @app.get("/api/config")
 async def get_ui_config():
     return {

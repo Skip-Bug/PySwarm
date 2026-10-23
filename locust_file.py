@@ -16,10 +16,8 @@ REQUESTS = []
 
 @events.test_start.add_listener
 def on_test_start(environment, **kwargs):
-    """Этот код выполняется один раз при старте Locust на каждом воркере."""
     global REQUESTS
 
-    # Загружаем сами запросы
     try:
         with open("tmp/test_data.json", "r", encoding="utf-8") as f:
             REQUESTS = json.load(f)
@@ -28,7 +26,6 @@ def on_test_start(environment, **kwargs):
         logger.error("❌ Файл test_data.json не найден!")
         return
 
-    # Загружаем настройки (токен и задержку), которые сохранил FastAPI
     try:
         with open("tmp/config.json", "r", encoding="utf-8") as f:
             config = json.load(f)
@@ -36,11 +33,9 @@ def on_test_start(environment, **kwargs):
         token = config.get("token")
         wait_time = config.get("wait_time", 1.0)
 
-        # Динамически меняем задержку для всех пользователей
         PySwarmUser.wait_time = constant(wait_time)
         logger.info("⚙️ Применена задержка: %.1f сек.", wait_time)
 
-        # Внедряем токен
         if token:
             logger.info("🔑 Токен найден! Внедряем в заголовки.")
             for req in REQUESTS:
@@ -53,7 +48,6 @@ def on_test_start(environment, **kwargs):
 
 
 class PySwarmUser(FastHttpUser):
-    # Значение по умолчанию (перезапишется из config.json)
     wait_time = constant(1.0)
 
     @task
