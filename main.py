@@ -1,9 +1,6 @@
 import asyncio
-import contextlib
 import json
 import os
-import signal
-import sys
 from typing import Any, Dict, Optional
 
 import httpx
@@ -18,8 +15,6 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-
-locust_process = None
 
 app = FastAPI(title="PySwarm API")
 app.add_middleware(
@@ -97,85 +92,52 @@ def cleanup_old_files(folder: str):
             pass
 
 
-# --- ЗАПУСК ТЕСТА ---
 @app.post("/api/start")
 async def start_load_test(config: TestConfig):
     ensure_tmp_dir()
     cleanup_old_files("tmp")
 
-    with contextlib.suppress(httpx.RequestError):
-        async with httpx.AsyncClient() as client:
-            await client.get("http://127.0.0.1:8089/quit", timeout=1.0)
+    # Сохраняем настройки в файл, чтобы воркеры их прочитали
+    worker_config = {"token": config.token, "wait_time": config.wait_time}
+    with open("tmp/config.json", "w", encoding="utf-8") as f:
+        json.dump(worker_config, f)
 
-    command = [
-        sys.executable,
-        "-m",
-        "locust",
-        "-f",
-        "locust_file.py",
-        "-u",
-        str(config.users),
-        "-r",
-        str(config.spawn_rate),
-        "--host",
-        config.host,
-        "--run-time",
-        f"{config.duration}s",
-        "--csv=tmp/test_results",
-        "--csv-full-history",
-        "--autostart",
-        "--stop-timeout",
-        "1",
-        "--web-host",
-        "127.0.0.1",
-    ]
-
-    env = os.environ.copy()
-    if config.token:
-        env["PYSWARM_TOKEN"] = config.token
-
-    env["PYSWARM_WAIT_TIME"] = str(config.wait_time)
-
-    global locust_process
-
+    # Отправляем команду Мастеру Locust (который крутится в отдельном контейнере)
     try:
-        locust_process = await asyncio.create_subprocess_exec(
-            *command,
-            env=env,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        return {"status": "started", "message": "Тест запущен"}
+        async with httpx.AsyncClient(trust_env=False) as client:
+            # Сначала сбрасываем статистику и запускаем
+            await client.get("http://locust_master:8089/stats/reset", timeout=2.0)
+
+            # Формируем запрос на старт
+            payload = {
+                "user_count": config.users,
+                "spawn_rate": config.spawn_rate,
+                "host": config.host,
+                "run_time": f"{config.duration}s",
+            }
+
+            response = await client.post(
+                "http://locust_master:8089/swarm", data=payload, timeout=5.0
+            )
+            response.raise_for_status()
+
+        return {"status": "started", "message": "Тест запущен на воркерах"}
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка запуска: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Ошибка связи с Locust Master: {str(e)}"
+        )
 
 
 @app.post("/api/stop")
 async def stop_load_test():
-    global locust_process
-
-    # Просим по-хорошему (подавляем ошибку, если Locust уже мертв)
-    with contextlib.suppress(httpx.RequestError):
-        async with httpx.AsyncClient() as client:
-            await client.get("http://127.0.0.1:8089/quit", timeout=1.0)
-
-    # Если процесса нет или он уже завершился — выходим
-    if not locust_process or locust_process.returncode is not None:
-        return {"status": "not_running", "message": "Тест уже не запущен"}
-
-    # Добиваем процесс
-    if os.name == "nt":
-        locust_process.terminate()
-    else:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(os.getpgid(locust_process.pid), signal.SIGTERM)  # type: ignore
-
-    # Ждем завершения и очищаем
-    await locust_process.wait()
-    locust_process = None
-
-    return {"status": "killed", "message": "Процесс Locust жестко завершен"}
+    try:
+        async with httpx.AsyncClient(trust_env=False) as client:
+            # Команда "stop" останавливает текущий тест (пользователи перестают генерироваться)
+            await client.get("http://locust_master:8089/stop", timeout=2.0)
+        return {"status": "stopped", "message": "Тест остановлен"}
+    except Exception as e:
+        return {"status": "error", "message": f"Ошибка: {str(e)}"}
 
 
 async def get_latest_metrics() -> Optional[Dict[str, Any]]:
@@ -183,7 +145,7 @@ async def get_latest_metrics() -> Optional[Dict[str, Any]]:
     try:
         async with httpx.AsyncClient(trust_env=False) as client:
             response = await client.get(
-                "http://127.0.0.1:8089/stats/requests",
+                "http://locust_master:8089/stats/requests",
                 timeout=3.0,  # <-- Увеличили таймаут, чтобы сервер успевал
             )
             response.raise_for_status()

@@ -1,3 +1,5 @@
+const API_BASE = window.location.origin;
+const WS_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/metrics';
 // Синхронизация бегунков и полей ввода
 const usersRange = document.getElementById('usersRange');
 const usersInput = document.getElementById('usersInput');
@@ -28,7 +30,7 @@ waitInput.addEventListener('input', () => { waitRange.value = waitInput.value; }
 // Загружаем конфигурацию с бэкенда при старте страницы
 async function loadConfig() {
     try {
-        const response = await fetch('http://127.0.0.1:8000/api/config');
+        const response = await fetch(API_BASE + '/api/config');
         const config = await response.json();
         
         // Применяем полученные настройки к ползункам и полям
@@ -105,7 +107,7 @@ function startTest() {
     const token = document.getElementById('tokenInput').value.trim();
     const host = document.getElementById('hostInput').value.trim();
     //  Стучимся в наш API, чтобы запустить Locust
-    fetch('http://127.0.0.1:8000/api/start', {
+    fetch(API_BASE + '/api/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -150,7 +152,10 @@ function startTest() {
 }
 async function stopTest() {
     try {
-        const response = await fetch('http://127.0.0.1:8000/api/stop', { method: 'POST' });
+        const response = await fetch(API_BASE + '/api/stop', { method: 'POST' });
+        if (!response.ok) {
+            throw new Error(`Ошибка: ${response.status} ${response.statusText}`);
+        }
         
         document.getElementById('status').innerText = "Статус: Тест остановлен";
         
@@ -167,7 +172,7 @@ async function stopTest() {
 function connectWebSocket() {
     if (ws) ws.close();
     
-    ws = new WebSocket("ws://127.0.0.1:8000/ws/metrics");
+    ws = new WebSocket(WS_URL);
     
     ws.onmessage = (event) => {
         
@@ -219,7 +224,7 @@ document.getElementById('jsonFileInput').addEventListener('change', async (event
 
     try {
         // Стучимся на наш эндпоинт
-        const response = await fetch('http://127.0.0.1:8000/api/upload', {
+        const response = await fetch(API_BASE + '/api/upload', {
             method: 'POST',
             body: formData
         });
