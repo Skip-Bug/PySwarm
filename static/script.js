@@ -214,7 +214,32 @@ function connectWebSocket() {
 
         rpsChart.update();
         usersChart.update();
-    };
+
+        // Обновляем загрузку CPU
+        if (data.cpu_load !== undefined) {
+            document.getElementById('cpuLoad').innerText = `CPU: ${data.cpu_load}%`;
+        }
+
+        // Обновляем таблицу
+        if (data.stats_table) {
+            const tbody = document.getElementById('statsTableBody');
+            tbody.innerHTML = ''; // Очищаем старые данные
+
+            data.stats_table.forEach(stat => {
+                const tr = document.createElement('tr');
+                tr.style.borderBottom = '1px solid #444';
+                tr.innerHTML = `
+                    <td style="padding: 8px; font-weight: bold; color: ${stat.method === 'GET' ? '#4CAF50' : '#2196F3'};">${stat.method}</td>
+                    <td style="padding: 8px;">${stat.name}</td>
+                    <td style="padding: 8px; color: #4CAF50;">${stat.avg} ms</td>
+                    <td style="padding: 8px;">${stat.p50} ms</td>
+                    <td style="padding: 8px;">${stat.p90} ms</td>
+                    <td style="padding: 8px;">${stat.p95} ms</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    };        
 
     ws.onclose = () => {
         console.log("WebSocket закрыт. Код:", event.code, "Причина:", event.reason);

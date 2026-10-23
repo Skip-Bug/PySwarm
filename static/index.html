@@ -82,6 +82,30 @@
             <canvas id="usersChart"></canvas>
         </div>
     </div>
+    <!-- ТАБЛИЦА СТАТИСТИКИ -->
+    <div class="container" style="margin-top: 20px;">
+        <div class="card" style="width: 95%;">
+            <h2 style="display: flex; justify-content: space-between; align-items: center;">
+                <span>Детальная статистика по эндпоинтам</span>
+                <span id="cpuLoad" style="color: #ff9800; font-size: 14px; margin: 0;">CPU: 0%</span>
+            </h2>
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px;">
+                <thead>
+                    <tr style="border-bottom: 2px solid #555; color: #bbb;">
+                        <th style="padding: 10px;">Метод</th>
+                        <th style="padding: 10px;">Эндпоинт</th>
+                        <th style="padding: 10px; color: #4CAF50;">Среднее (Latency)</th>
+                        <th style="padding: 10px;">p50 (медиана)</th>
+                        <th style="padding: 10px;">p90</th>
+                        <th style="padding: 10px;">p95</th>
+                    </tr>
+                </thead>
+                <tbody id="statsTableBody">
+                    <!-- Сюда JS будет вставлять строки -->
+                </tbody>
+            </table>
+        </div>
+    </div>
     <script src="/script.js"></script>
 </body>
 </html>

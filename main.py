@@ -5,6 +5,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 import httpx
+import psutil
 from fastapi import (
     FastAPI,
     File,
@@ -198,6 +199,9 @@ async def stop_load_test():
 
 async def get_latest_metrics() -> Optional[Dict[str, Any]]:
     try:
+        # Получаем загрузку CPU текущего контейнера/системы
+        cpu_load = psutil.cpu_percent()
+
         async with httpx.AsyncClient(trust_env=False) as client:
             response = await client.get(
                 "http://locust_master:8089/stats/requests",
@@ -211,11 +215,28 @@ async def get_latest_metrics() -> Optional[Dict[str, Any]]:
 
         total_fails = sum(stat.get("num_failures", 0) for stat in data.get("stats", []))
 
+        stats_table = []
+        for stat in data.get("stats", []):
+            if stat.get("name") == "Aggregated":
+                continue
+            stats_table.append(
+                {
+                    "name": stat.get("name", ""),
+                    "method": stat.get("method", "GET"),
+                    "avg": round(stat.get("avg_response_time", 0), 1),
+                    "p50": stat.get("median_response_time", 0),
+                    "p90": stat.get("response_time_percentile_0.9", 0),
+                    "p95": stat.get("response_time_percentile_0.95", 0),
+                }
+            )
+
         return {
             "timestamp": str(int(asyncio.get_event_loop().time())),
             "user_count": str(data.get("user_count", 0)),
             "total_rps": str(round(data.get("total_rps", 0), 2)),
             "fails": str(total_fails),
+            "cpu_load": cpu_load,
+            "stats_table": stats_table,
         }
     except Exception as e:
         logger.error("Ошибка получения метрик: %s - %s", type(e).__name__, e)

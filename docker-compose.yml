@@ -10,6 +10,8 @@ services:
     environment:
       - MAX_USERS_DEFAULT=50
       - TEST_DURATION_DEFAULT=60
+    cpus: ${BACKEND_CPUS:-1.0}
+    mem_limit: ${BACKEND_MEM:-512m}
 
   locust_master:
     build: .
@@ -19,6 +21,8 @@ services:
     volumes:
       - ./tmp:/app/tmp
     command: locust -f locust_file.py --master --web-host 0.0.0.0 --web-port 8089
+    cpus: ${MASTER_CPUS:-1.0}
+    mem_limit: ${MASTER_MEM:-512m}
 
   locust_worker:
     build: .
@@ -28,3 +32,5 @@ services:
     depends_on:
       - locust_master
     restart: on-failure
+    cpus: ${WORKER_CPUS:-1.0}
+    mem_limit: ${WORKER_MEM:-1g}
