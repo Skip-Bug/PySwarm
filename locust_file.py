@@ -2,7 +2,7 @@ import json
 import logging
 import random
 
-from locust import FastHttpUser, constant, events, task
+from locust import FastHttpUser, constant, constant_throughput, events, task
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,9 +32,14 @@ def on_test_start(environment, **kwargs):
 
         token = config.get("token")
         wait_time = config.get("wait_time", 1.0)
+        is_open_loop = config.get("is_open_loop", False)
 
-        PySwarmUser.wait_time = constant(wait_time)
-        logger.info("⚙️ Применена задержка: %.1f сек.", wait_time)
+        if is_open_loop:
+            PySwarmUser.wait_time = constant_throughput(1.0)
+            logger.info("⚙️ Режим: открытый контур (constant_throughput 1.0)")
+        else:
+            PySwarmUser.wait_time = constant(wait_time)
+            logger.info("⚙️ Режим: закрытый контур (constant %.1f сек.)", wait_time)
 
         if token:
             logger.info("🔑 Токен найден! Внедряем в заголовки.")
@@ -44,7 +49,9 @@ def on_test_start(environment, **kwargs):
                 req["headers"]["Authorization"] = f"Bearer {token}"
 
     except FileNotFoundError:
-        logger.warning("⚠️ Файл config.json не найден, используем настройки по умолчанию.")
+        logger.warning(
+            "⚠️ Файл config.json не найден, используем настройки по умолчанию."
+        )
 
 
 class PySwarmUser(FastHttpUser):

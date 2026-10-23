@@ -210,21 +210,31 @@ function connectWebSocket() {
         console.log("Ошибка WebSocket:", error);
     }
 }
-// Обработка загрузки JSON-файла
-document.getElementById('jsonFileInput').addEventListener('change', async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+
+// Обработка загрузки папки с JSON-файлами
+document.getElementById('folderInput').addEventListener('change', async (event) => {
+    const files = Array.from(event.target.files);
+    if (!files.length) return;
+
+    // Оставляем только .json файлы (на клиенте, чтобы не гонять лишнее по сети)
+    const jsonFiles = files.filter(f => f.name.endsWith('.json'));
+    if (!jsonFiles.length) {
+        document.getElementById('uploadStatus').innerText = "❌ В папке нет .json файлов";
+        document.getElementById('uploadStatus').style.color = "#F44336";
+        return;
+    }
 
     const formData = new FormData();
-    formData.append("file", file);
+    jsonFiles.forEach(file => {
+        formData.append("files", file);
+    });
 
     const statusEl = document.getElementById('uploadStatus');
-    statusEl.innerText = "⏳ Загрузка...";
+    statusEl.innerText = `⏳ Загрузка ${jsonFiles.length} файлов...`;
     statusEl.style.color = "#ff9800";
 
     try {
-        // Стучимся на наш эндпоинт
-        const response = await fetch(API_BASE + '/api/upload', {
+        const response = await fetch(API_BASE + '/api/upload_folder', {
             method: 'POST',
             body: formData
         });
@@ -232,11 +242,18 @@ document.getElementById('jsonFileInput').addEventListener('change', async (event
         const data = await response.json();
         
         if (response.ok) {
-            statusEl.innerText = `✅ ${data.message}`;
-            statusEl.style.color = "#4CAF50"; // Зеленый
+            let msg = `✅ Загружено файлов: ${data.saved_files}, запросов: ${data.total_requests}`;
+            if (data.skipped_files > 0) {
+                msg += ` (пропущено: ${data.skipped_files})`;
+            }
+            statusEl.innerText = msg;
+            statusEl.style.color = "#4CAF50"; 
+            
+            // Выводим в консоль детали по каждому файлу (для отладки)
+            console.log("Сводка по файлам:", data.files);
         } else {
-            statusEl.innerText = `❌ Ошибка: ${data.detail}`;
-            statusEl.style.color = "#F44336"; // Красный
+            statusEl.innerText = `❌ Ошибка: ${data.detail || 'неизвестная'}`;
+            statusEl.style.color = "#F44336";
         }
     } catch (error) {
         statusEl.innerText = `❌ Ошибка соединения`;

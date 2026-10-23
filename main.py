@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import (
@@ -54,28 +54,69 @@ def ensure_tmp_dir():
     os.makedirs("tmp", exist_ok=True)
 
 
-@app.post("/api/upload")
-async def upload_json(file: UploadFile = File(...)):
-    if not file.filename.endswith(".json"):
-        raise HTTPException(status_code=400, detail="Только JSON файлы разрешены")
-
-    try:
-        contents = await file.read()
-        parsing_content = json.loads(contents)
-        requests_list = [ApiRequest(**item) for item in parsing_content]
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Невалидный JSON формат")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
+@app.post("/api/upload_folder")
+async def upload_folder(files: List[UploadFile] = File(...)):
     ensure_tmp_dir()
-    with open("tmp/test_data.json", "w", encoding="utf-8") as f:
-        json.dump(parsing_content, f, ensure_ascii=False, indent=2)
+    all_requests = []
+    results = []
 
-    logger.info("Загружено %d запросов из %s", len(requests_list), file.filename)
+    for file in files:
+        name = os.path.basename(file.filename or "unknown.json")
+
+        if not name.endswith(".json"):
+            results.append({"file": name, "status": "skipped", "reason": "не .json"})
+            continue
+
+        try:
+            contents = await file.read()
+            data = json.loads(contents)
+        except json.JSONDecodeError as e:
+            results.append(
+                {"file": name, "status": "skipped", "reason": f"битый JSON: {e}"}
+            )
+            continue
+
+        if not isinstance(data, list):
+            results.append({"file": name, "status": "skipped", "reason": "не список"})
+            continue
+
+        try:
+            [ApiRequest(**item) for item in data]
+        except Exception as e:
+            results.append(
+                {"file": name, "status": "skipped", "reason": f"невалидный запрос: {e}"}
+            )
+            continue
+
+        all_requests.extend(data)
+        results.append({"file": name, "status": "ok", "count": len(data)})
+
+    if not all_requests:
+        logger.error("❌ Ни один файл не прошел валидацию.")
+        return {
+            "saved_files": 0,
+            "skipped_files": len(results),
+            "total_requests": 0,
+            "files": results,
+        }
+
+    # Сохраняем ОДИН объединенный файл
+    with open("tmp/test_data.json", "w", encoding="utf-8") as f:
+        json.dump(all_requests, f, ensure_ascii=False, indent=2)
+
+    saved = sum(1 for r in results if r["status"] == "ok")
+    skipped = len(results) - saved
+    logger.info(
+        "Папка загружена: ok=%d, пропущено=%d, всего запросов=%d",
+        saved,
+        skipped,
+        len(all_requests),
+    )
     return {
-        "message": f"Успешно распарсено и сохранено {len(requests_list)} запросов",
-        "first_request": requests_list[0],
+        "saved_files": saved,
+        "skipped_files": skipped,
+        "total_requests": len(all_requests),
+        "files": results,
     }
 
 
@@ -97,8 +138,13 @@ def cleanup_old_files(folder: str):
 
 @app.post("/api/start")
 async def start_load_test(config: TestConfig):
-    logger.info("Запуск теста: users=%d, spawn=%d, host=%s, duration=%ds",
-                 config.users, config.spawn_rate, config.host, config.duration)
+    logger.info(
+        "Запуск теста: users=%d, spawn=%d, host=%s, duration=%ds",
+        config.users,
+        config.spawn_rate,
+        config.host,
+        config.duration,
+    )
     ensure_tmp_dir()
     cleanup_old_files("tmp")
 
