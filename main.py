@@ -61,33 +61,25 @@ def ensure_tmp_dir():
 @app.post("/api/upload")
 async def upload_json(file: UploadFile = File(...)):
     if not file.filename.endswith(".json"):
-        raise HTTPException(
-            status_code=400,
-            detail="Только JSON файлы разрешены",
-        )
+        raise HTTPException(status_code=400, detail="Только JSON файлы разрешены")
 
     try:
         contents = await file.read()
         parsing_content = json.loads(contents)
-
-        # Валидируем данные через Pydantic.
         requests_list = [ApiRequest(**item) for item in parsing_content]
-
-        # СОХРАНЯЕМ файл на диск для Locust
-        ensure_tmp_dir()
-
-        with open("tmp/test_data.json", "w", encoding="utf-8") as f:
-            json.dump(parsing_content, f, ensure_ascii=False, indent=2)
-
-        return {
-            "message": f"Успешно распарсено и сохранено {len(requests_list)} запросов",
-            "first_request": requests_list[0],
-        }
-
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Невалидный JSON формат")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    ensure_tmp_dir()
+    with open("tmp/test_data.json", "w", encoding="utf-8") as f:
+        json.dump(parsing_content, f, ensure_ascii=False, indent=2)
+
+    return {
+        "message": f"Успешно распарсено и сохранено {len(requests_list)} запросов",
+        "first_request": requests_list[0],
+    }
 
 
 def cleanup_old_files(folder: str):
@@ -107,17 +99,16 @@ def cleanup_old_files(folder: str):
             pass
 
 
-# --- РЕАЛЬНЫЙ ЗАПУСК ТЕСТА ---
+# --- ЗАПУСК ТЕСТА ---
 @app.post("/api/start")
 async def start_load_test(config: TestConfig):
     ensure_tmp_dir()
     cleanup_old_files("tmp")
-    try:
+
+    with contextlib.suppress(httpx.RequestError):
         async with httpx.AsyncClient() as client:
             await client.get("http://127.0.0.1:8089/quit", timeout=1.0)
-    except httpx.RequestError:
-        # Если Locust не запущен (ошибка соединения) — это нормально, идем дальше
-        pass
+
     command = [
         sys.executable,
         "-m",
@@ -152,40 +143,32 @@ async def start_load_test(config: TestConfig):
             stderr=asyncio.subprocess.DEVNULL,
             start_new_session=True,
         )
-
-        return {
-            "status": "started",
-            "message": "Тест запущен в фоне на 30 секунд",
-        }
-
+        return {"status": "started", "message": "Тест запущен"}
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Ошибка запуска: {str(e)}",
-        )
+        raise HTTPException(status_code=500, detail=f"Ошибка запуска: {str(e)}")
 
 
 @app.post("/api/stop")
 async def stop_load_test():
     global locust_process
 
-    # 1. Просим по-хорошему (подавляем ошибку, если Locust уже мертв)
+    # Просим по-хорошему (подавляем ошибку, если Locust уже мертв)
     with contextlib.suppress(httpx.RequestError):
         async with httpx.AsyncClient() as client:
             await client.get("http://127.0.0.1:8089/quit", timeout=1.0)
 
-    # 2. Если процесса нет или он уже завершился — выходим
+    # Если процесса нет или он уже завершился — выходим
     if not locust_process or locust_process.returncode is not None:
         return {"status": "not_running", "message": "Тест уже не запущен"}
 
-    # 3. Добиваем процесс
+    # Добиваем процесс
     if os.name == "nt":
         locust_process.terminate()
     else:
         with contextlib.suppress(ProcessLookupError):
             os.killpg(os.getpgid(locust_process.pid), signal.SIGTERM)  # type: ignore
 
-    # 4. Ждем завершения и очищаем
+    # Ждем завершения и очищаем
     await locust_process.wait()
     locust_process = None
 
@@ -197,34 +180,29 @@ def get_latest_metrics(file_path: str) -> Optional[Dict[str, Any]]:
     try:
         with open(file_path, mode="r", encoding="utf-8") as f:
             lines = f.readlines()
-
-        # Ищем самую последнюю строку, в которой есть хоть какие-то данные
-        last_line = None
-        for line in reversed(lines):
-            if line.strip():
-                last_line = line.strip()
-                break
-
-        if not last_line:
-            return None
-
-        reader = csv.reader([last_line])
-        row = next(reader, None)
-
-        # Проверяем, что в строке достаточно столбцов, чтобы не было IndexError
-        if not row or len(row) < 6:
-            return None
-
-        return {
-            "timestamp": row[0],
-            "user_count": row[1],
-            "total_rps": row[4],
-            "fails": row[5],
-        }
-
     except (FileNotFoundError, PermissionError):
-        # Если файла нет (тест не запущен) или он занят (Windows), просто молчим
         return None
+
+    # Находим последнюю непустую строку через генератор (плоско и быстро)
+    last_line = next(
+        (line.strip() for line in reversed(lines) if line.strip()),
+        None,
+    )
+
+    if not last_line:
+        return None
+
+    row = next(csv.reader([last_line]), None)
+
+    if not row or len(row) < 6:
+        return None
+
+    return {
+        "timestamp": row[0],
+        "user_count": row[1],
+        "total_rps": row[4],
+        "fails": row[5],
+    }
 
 
 @app.websocket("/ws/metrics")
