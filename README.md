@@ -23,6 +23,15 @@
 
 ## 📦 Режим: Standalone (.exe)
 
+### Сборка
+
+```bash
+pip install pyinstaller
+pyinstaller --onefile --name pyswarm pyswarm.py
+```
+
+Готовый файл появится в `dist/pyswarm.exe`.
+
 ### Запуск
 
 1. Положите `pyswarm.exe` в любую папку.
